@@ -1,31 +1,47 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/mat4x4.hpp>
+#include <stdexcept>
+#include <vector>
+#include <string>
 
-#include <iostream>
+using std::string;
 
-using std::cout;
-using std::endl;
+#include "VulkanRenderer.h"
 
-int main() {
+GLFWwindow* window = nullptr;
+VulkanRenderer vulkanRenderer;
+
+
+void initWindow(string wName = "Vulkan", const int width = 800, const int height = 600)
+{
+	// Initialize GLFW
 	glfwInit();
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(800, 600, "Test", nullptr, nullptr);
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // GLFW won't work with OpenGL
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	uint32_t extensionCount = 0;
-	vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-	cout << "Extension count: " << extensionCount << endl;
+	window = glfwCreateWindow(width, height, wName.c_str(), nullptr, nullptr);
+}
 
-	while (!glfwWindowShouldClose(window)) {
-		glfwPollEvents();
-	}
+void clean()
+{
+	vulkanRenderer.clean();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
+}
+
+int main()
+{
+	initWindow();
+	if (vulkanRenderer.init(window) == EXIT_FAILURE) return EXIT_FAILURE;
+
+	while (!glfwWindowShouldClose(window))
+	{
+		glfwPollEvents();
+	}
+
+	clean();
 
 	return 0;
 }
