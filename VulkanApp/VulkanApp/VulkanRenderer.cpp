@@ -17,6 +17,7 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 	try
 	{
 		createInstance();
+		getPhysicalDevice();
 	}
 	catch (const std::runtime_error& e)
 	{
@@ -100,6 +101,64 @@ bool VulkanRenderer::checkInstanceExtensionSupport(const std::vector<const char*
 	}
 
 	return true;
+}
+
+
+void VulkanRenderer::getPhysicalDevice()
+{
+	// Get available physical devices
+	vector<vk::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
+
+	// If no devices available
+	if (devices.size() == 0)
+	{
+		throw std::runtime_error("Can't find any GPU that supports vulkan");
+	}
+
+	// Get valid device for what we want to do
+	for (const auto& device : devices)
+	{
+		if (checkDeviceSuitable(device))
+		{
+			mainDevice.physicalDevice = device;
+			break;
+		}
+	}
+}
+
+bool VulkanRenderer::checkDeviceSuitable(vk::PhysicalDevice device)
+{
+	// Information about the device itself (ID, name, type, vendor, etc.)
+	vk::PhysicalDeviceProperties deviceProperties = device.getProperties();
+
+	// Information about what the device can do (geom shader, tesselation, wide lines...)
+	vk::PhysicalDeviceFeatures deviceFeatures = device.getFeatures();
+
+	// For now we do nothing with this info
+	QueueFamilyIndices indices = getQueueFamilies(device);
+
+	return indices.isValid();
+}
+
+QueueFamilyIndices VulkanRenderer::getQueueFamilies(vk::PhysicalDevice device)
+{
+	QueueFamilyIndices indices;
+	vector<vk::QueueFamilyProperties> queueFamilies = device.getQueueFamilyProperties();
+
+	// Go through each queue family and check if it has at least one required type of queue
+	int i = 0;
+	for (const auto& queueFamily : queueFamilies)
+	{
+		// Check if there is at least graphics queue
+		if (queueFamily.queueCount > 0 && queueFamily.queueFlags & vk::QueueFlagBits::eGraphics)
+		{
+			indices.graphicsFamily = i;
+		}
+		if (indices.isValid()) break;
+		++i;
+	}
+
+	return indices;
 }
 
 void VulkanRenderer::clean()
