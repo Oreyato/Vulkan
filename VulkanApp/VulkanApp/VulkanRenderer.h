@@ -28,6 +28,8 @@ private:
 	GLFWwindow* window;
 	vk::Instance instance; // vk:: -> C++ API
 
+	vk::Queue graphicsQueue;
+
 	void createInstance();
 	bool checkInstanceExtensionSupport(const std::vector<const char*>& checkExtensions);
 
@@ -38,4 +40,7 @@ private:
 	/// and getting its queue family indices. If they are valid, it returns true
 	bool checkDeviceSuitable(vk::PhysicalDevice device);
 	QueueFamilyIndices getQueueFamilies(vk::PhysicalDevice device);
+
+	/// 
+	void createLogicalDevice();
 };

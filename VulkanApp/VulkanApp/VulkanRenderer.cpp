@@ -1,7 +1,12 @@
 #include "VulkanRenderer.h"
 
-using std::vector;
+#include <set>
 
+using std::vector;
+using std::set;
+
+
+#pragma region Public methods
 VulkanRenderer::VulkanRenderer()
 {
 }
@@ -29,6 +34,14 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 	return EXIT_SUCCESS;
 }
 
+void VulkanRenderer::clean()
+{
+	mainDevice.logicalDevice.destroy();
+	instance.destroy();
+}
+
+#pragma endregion
+#pragma region Private methods
 void VulkanRenderer::createInstance()
 {
 	//v App informations =============================================
@@ -161,7 +174,48 @@ QueueFamilyIndices VulkanRenderer::getQueueFamilies(vk::PhysicalDevice device)
 	return indices;
 }
 
-void VulkanRenderer::clean()
+void VulkanRenderer::createLogicalDevice()
 {
-	instance.destroy();
+	QueueFamilyIndices indices = getQueueFamilies(mainDevice.physicalDevice);
+
+	// Vector for queue creation information, and set for family indices.
+	// A set will only keep one indice if they are the same.
+	vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+	set<int> queueFamilyIndices = { indices.graphicsFamily, indices.presentationFamily };
+
+	// Queues the logical device needs to create and info to do so.
+	for (int queueFamilyIndex : queueFamilyIndices)
+	{
+		vk::DeviceQueueCreateInfo queueCreateInfo{};
+		queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
+		queueCreateInfo.queueCount = 1;
+		float priority = 1.0f;
+		// Vulkan needs to know how to handle multiple queues. It uses priorities.
+		// 1 is the highest priority.
+		queueCreateInfo.pQueuePriorities = &priority;
+		queueCreateInfos.push_back(queueCreateInfo);
+	}
+
+	// Logical device creation
+	vk::DeviceCreateInfo deviceCreateInfo{};
+	// Queues info
+	deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
+	// Extensions info
+	// Device extensions, different from instance extensions
+	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+	deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+	// -- Validation layers are deprecated since Vulkan 1.1
+	// Features
+	// For now, no device features (tessellation etc.)
+	vk::PhysicalDeviceFeatures deviceFeatures{};
+	deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+
+	// Create the logical device for the given physical device
+	mainDevice.logicalDevice = mainDevice.physicalDevice.createDevice(deviceCreateInfo);
+
+	// Ensure access to queues
+	graphicsQueue = mainDevice.logicalDevice.getQueue(indices.graphicsFamily, 0);
 }
+
+#pragma endregion
