@@ -24,6 +24,7 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 	try
 	{
 		createInstance();
+		setupDebugMessenger();
 		getPhysicalDevice();
 	}
 	catch (const std::runtime_error& e)
@@ -36,8 +37,27 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 	return EXIT_SUCCESS;
 }
 
+std::vector<const char*> VulkanRenderer::getRequiredExtensions()
+{
+	uint32_t glfwExtensionCount = 0;
+	const char** glfwExtensions;
+	glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+	vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+
+	if (enableValidationLayers) {
+		extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME); // This macro is equal to "VK_EXT_debug_utils"
+	}
+
+	return extensions;
+}
+
 void VulkanRenderer::clean()
 {
+	if (enableValidationLayers) {
+		//destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+	}
+
 	mainDevice.logicalDevice.destroy();
 	instance.destroy();
 }
@@ -66,15 +86,15 @@ void VulkanRenderer::createInstance()
 	createInfo.pApplicationInfo = &appInfo; // Application info from above
 
 	// Setup extensions instance will use ===
-	std::vector<const char*> instanceExtensions;
-	uint32_t glfwExtensionsCount = 0; // Glfw may require multiple extensions
-	const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionsCount);
-	for (size_t i = 0; i < glfwExtensionsCount; ++i)
-	{
-		instanceExtensions.push_back(glfwExtensions[i]);
-	}
+	std::vector<const char*> instanceExtensions = getRequiredExtensions();
+	//uint32_t glfwExtensionsCount = 0; // Glfw may require multiple extensions
+	//const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionsCount);
+	//for (size_t i = 0; i < glfwExtensionsCount; ++i)
+	//{
+	//	instanceExtensions.push_back(glfwExtensions[i]);
+	//}
 
-	// Check extensions
+	// Check instance extensions
 	if (!checkInstanceExtensionSupport(instanceExtensions))
 	{
 		throw std::runtime_error("VkInstance does not support required extensions");
@@ -84,6 +104,7 @@ void VulkanRenderer::createInstance()
 	createInfo.ppEnabledExtensionNames = instanceExtensions.data();
 	// ======================================
 	// Validation layers ====================
+	VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
 	if (enableValidationLayers && !checkValidationLayerSupport())
 	{
 		throw std::runtime_error("validation layers requested, but not available!");
@@ -92,6 +113,9 @@ void VulkanRenderer::createInstance()
 	{
 		createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 		createInfo.ppEnabledLayerNames = validationLayers.data();
+
+		populateDebugMessengerCreateInfo(debugCreateInfo);
+		createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 	}
 	else
 	{
@@ -103,6 +127,59 @@ void VulkanRenderer::createInstance()
 
 	// Finally create instance
 	instance = vk::createInstance(createInfo);
+}
+
+void VulkanRenderer::setupDebugMessenger()
+{
+	if (!enableValidationLayers) return;
+
+	VkDebugUtilsMessengerCreateInfoEXT createInfo;
+	populateDebugMessengerCreateInfo(createInfo);
+
+	if (createDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to set up debug messenger.");
+	}
+}
+
+void VulkanRenderer::populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
+{
+	createInfo = {};
+	createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+	createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+		VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+		VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+	createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+		VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+		VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+	createInfo.pfnUserCallback = debugCallback;
+}
+
+VkResult VulkanRenderer::createDebugUtilsMessengerEXT(VkInstance instance, 
+													  const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, 
+													  const VkAllocationCallbacks* pAllocator, 
+													  VkDebugUtilsMessengerEXT* pDebugMessenger)
+{
+	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+
+	if (func != nullptr)
+	{
+		return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
+	}
+	else
+	{
+		return VK_ERROR_EXTENSION_NOT_PRESENT;
+	}
+}
+
+void VulkanRenderer::destroyDebugUtilsMessengerEXT(VkInstance instance,
+	VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator)
+{
+	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance,
+		"vkDestroyDebugUtilsMessengerEXT");
+	if (func != nullptr)
+	{
+		func(instance, debugMessenger, pAllocator);
+	}
 }
 
 bool VulkanRenderer::checkInstanceExtensionSupport(const std::vector<const char*>& checkExtensions)

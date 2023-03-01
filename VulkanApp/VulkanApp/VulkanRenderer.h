@@ -22,6 +22,8 @@ public:
 
 	int init(GLFWwindow* windowP);
 
+	std::vector<const char*> getRequiredExtensions();
+
 	void clean();
 
 #ifdef NODEBUG
@@ -37,7 +39,21 @@ private:
 
 	vk::Queue graphicsQueue;
 
+	VkDebugUtilsMessengerEXT debugMessenger;
+
 	void createInstance();
+	
+	void setupDebugMessenger();
+	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+	VkResult createDebugUtilsMessengerEXT(VkInstance instance,
+										  const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+										  const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger
+	);
+	void destroyDebugUtilsMessengerEXT(VkInstance instance,
+									   VkDebugUtilsMessengerEXT debugMessenger, 
+									   const VkAllocationCallbacks* pAllocator
+	);
+
 	bool checkInstanceExtensionSupport(const std::vector<const char*>& checkExtensions);
 
 	/// Enumerate physical devices and store them
