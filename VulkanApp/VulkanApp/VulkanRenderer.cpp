@@ -80,6 +80,11 @@ void VulkanRenderer::clean()
 		destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 	}
 
+	for (SwapchainImage& image : swapchainImages)
+	{
+		mainDevice.logicalDevice.destroyImageView(image.imageView);
+	}
+
 	mainDevice.logicalDevice.destroy();
 	instance.destroy();
 }
@@ -273,6 +278,20 @@ void VulkanRenderer::createSwapchain()
 
 	// Create swapchain
 	swapchain = mainDevice.logicalDevice.createSwapchainKHR(swapchainCreateInfo);
+
+	//v Get swapchain's images =======================================
+	vector<vk::Image> images = mainDevice.logicalDevice.getSwapchainImagesKHR(swapchain);
+
+	for (VkImage image : images) {
+		SwapchainImage swapchainImage{};
+		swapchainImage.image = image;
+
+		// Create image view
+		swapchainImage.imageView = createImageView(image, swapchainImageFormat, vk::ImageAspectFlagBits::eColor);
+
+		swapchainImages.push_back(swapchainImage);
+	}
+	//^ Get swapchain's images =======================================
 }
 
 void VulkanRenderer::destroyDebugUtilsMessengerEXT(VkInstance instance,
@@ -284,6 +303,33 @@ void VulkanRenderer::destroyDebugUtilsMessengerEXT(VkInstance instance,
 	{
 		func(instance, debugMessenger, pAllocator);
 	}
+}
+
+vk::ImageView VulkanRenderer::createImageView(vk::Image image, vk::Format format, vk::ImageAspectFlagBits aspectFlags)
+{
+	vk::ImageViewCreateInfo viewCreateInfo{};
+	viewCreateInfo.image = image;
+	viewCreateInfo.viewType = vk::ImageViewType::e2D; // Other formats can be used for cubemaps etc.
+	viewCreateInfo.format = format; // Can be used for depth for instance
+
+	// Swizzle used to remap color values. Here we keep the same.
+	viewCreateInfo.components.r = vk::ComponentSwizzle::eIdentity;
+	viewCreateInfo.components.g = vk::ComponentSwizzle::eIdentity;
+	viewCreateInfo.components.b = vk::ComponentSwizzle::eIdentity;
+	viewCreateInfo.components.a = vk::ComponentSwizzle::eIdentity;
+
+	// Subresources allow the view to view only a part of an image
+	// Here we want to see the image under the aspect of colors
+	viewCreateInfo.subresourceRange.aspectMask = aspectFlags;
+	viewCreateInfo.subresourceRange.baseMipLevel = 0; // Start mipmap level to view from
+	viewCreateInfo.subresourceRange.levelCount = 1; // Number of mipmap level to view
+	viewCreateInfo.subresourceRange.baseArrayLayer = 0; // Start array level to view from
+	viewCreateInfo.subresourceRange.layerCount = 1; // Number of array levels to view
+
+	// Create image view
+	vk::ImageView imageView = mainDevice.logicalDevice.createImageView(viewCreateInfo);
+
+	return imageView;
 }
 
 vk::SurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(const vector<vk::SurfaceFormatKHR>& formats)

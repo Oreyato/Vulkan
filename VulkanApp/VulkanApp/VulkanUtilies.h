@@ -49,3 +49,9 @@ struct SwapchainDetails {
 	// Vector of presentation modes
 	vector<vk::PresentModeKHR> presentationModes;
 };
+
+struct SwapchainImage
+{
+	vk::Image image;
+	vk::ImageView imageView;
+};

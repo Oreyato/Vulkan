@@ -3,7 +3,6 @@
 #include <GLFW/glfw3.h>
 
 #include <stdexcept>
-#include <vector>
 
 #include "VulkanUtilies.h"
 
@@ -50,6 +49,9 @@ private:
 	vk::Format swapchainImageFormat;
 	vk::Extent2D swapchainExtent;
 
+	std::vector<SwapchainImage> swapchainImages;
+	vk::ImageView createImageView(vk::Image image, vk::Format format, vk::ImageAspectFlagBits aspectFlags);
+
 	void createSwapchain();
 	
 	vk::SurfaceFormatKHR chooseBestSurfaceFormat(const vector<vk::SurfaceFormatKHR>& formats);
@@ -73,7 +75,6 @@ private:
 	/// Enumerate physical devices and store them
 	/// Then check if the devices are suitable for future uses
 	void getPhysicalDevice();
-	/// 
 	void createLogicalDevice();
 
 	QueueFamilyIndices getQueueFamilies(vk::PhysicalDevice device);
