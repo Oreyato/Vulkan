@@ -3,6 +3,7 @@
 ### Install
 Download the SDK on [https://vulkan.lunarg.com/](https://vulkan.lunarg.com/) and install it.
 
+If for some reason *Project properties* vanish, please write those lines: 
 #### Project properties
 ##### VC++ Directories
 ###### Include Directories
