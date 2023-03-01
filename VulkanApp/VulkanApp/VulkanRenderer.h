@@ -24,6 +24,13 @@ public:
 
 	void clean();
 
+#ifdef NODEBUG
+	static const bool enableValidationLayers = false;
+#else
+	static const bool enableValidationLayers = true;
+#endif
+	static const std::vector<const char*> validationLayers;
+
 private:
 	GLFWwindow* window;
 	vk::Instance instance; // vk:: -> C++ API
@@ -43,4 +50,6 @@ private:
 
 	/// 
 	void createLogicalDevice();
+
+	bool checkValidationLayerSupport();
 };

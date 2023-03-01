@@ -6,6 +6,8 @@ using std::vector;
 using std::set;
 
 
+const vector<const char*> VulkanRenderer::validationLayers{ "VK_LAYER_KHRONOS_validation" };
+
 #pragma region Public methods
 VulkanRenderer::VulkanRenderer()
 {
@@ -81,12 +83,22 @@ void VulkanRenderer::createInstance()
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(instanceExtensions.size());
 	createInfo.ppEnabledExtensionNames = instanceExtensions.data();
 	// ======================================
-
-	// Validation layers, for now not used
-	// TODO : setup
-	createInfo.enabledLayerCount = 0;
-	createInfo.ppEnabledLayerNames = nullptr;
-
+	// Validation layers ====================
+	if (enableValidationLayers && !checkValidationLayerSupport())
+	{
+		throw std::runtime_error("validation layers requested, but not available!");
+	}
+	if (enableValidationLayers)
+	{
+		createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+		createInfo.ppEnabledLayerNames = validationLayers.data();
+	}
+	else
+	{
+		createInfo.enabledLayerCount = 0;
+		createInfo.ppEnabledLayerNames = nullptr;
+	}
+	// ======================================
 	//^ Create informations ==========================================
 
 	// Finally create instance
@@ -216,6 +228,28 @@ void VulkanRenderer::createLogicalDevice()
 
 	// Ensure access to queues
 	graphicsQueue = mainDevice.logicalDevice.getQueue(indices.graphicsFamily, 0);
+}
+
+bool VulkanRenderer::checkValidationLayerSupport()
+{
+	vector<vk::LayerProperties> availableLayers = vk::enumerateInstanceLayerProperties();
+
+	// Check if all of the layers in validation layers exist in the available layers
+	for (const char* layerName : validationLayers)
+	{
+		bool layerFound = false;
+		for (const auto& layerProperties : availableLayers)
+		{
+			if (strcmp(layerName, layerProperties.layerName) == 0)
+			{
+				layerFound = true;
+				break;
+			}
+		}
+		if (!layerFound) return false;
+	}
+
+	return true;
 }
 
 #pragma endregion
