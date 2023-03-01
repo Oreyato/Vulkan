@@ -34,15 +34,20 @@ public:
 	static const std::vector<const char*> validationLayers;
 
 private:
+	void createInstance();
+
 	GLFWwindow* window;
 	vk::Instance instance; // vk:: -> C++ API
 
 	vk::Queue graphicsQueue;
 
-	VkDebugUtilsMessengerEXT debugMessenger;
+	vk::SurfaceKHR surface;
+	vk::Queue presentationQueue;
 
-	void createInstance();
-	
+	vk::SurfaceKHR createSurface();
+
+	//v Messenger ====================================================
+	VkDebugUtilsMessengerEXT debugMessenger;
 	void setupDebugMessenger();
 	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 	VkResult createDebugUtilsMessengerEXT(VkInstance instance,
@@ -53,19 +58,22 @@ private:
 									   VkDebugUtilsMessengerEXT debugMessenger, 
 									   const VkAllocationCallbacks* pAllocator
 	);
-
-	bool checkInstanceExtensionSupport(const std::vector<const char*>& checkExtensions);
+	//^ Messenger ====================================================
 
 	/// Enumerate physical devices and store them
 	/// Then check if the devices are suitable for future uses
 	void getPhysicalDevice();
-	/// Check if the devices are suitable for future uses by gathering the info about the physical device
-	/// and getting its queue family indices. If they are valid, it returns true
-	bool checkDeviceSuitable(vk::PhysicalDevice device);
-	QueueFamilyIndices getQueueFamilies(vk::PhysicalDevice device);
-
 	/// 
 	void createLogicalDevice();
 
+	QueueFamilyIndices getQueueFamilies(vk::PhysicalDevice device);
+
+	//v Various checks ===============================================
+	bool checkInstanceExtensionSupport(const std::vector<const char*>& checkExtensions);
+	bool checkDeviceExtensionSupport(vk::PhysicalDevice device);
+	/// Check if the devices are suitable for future uses by gathering the info about the physical device
+	/// and getting its queue family indices. If they are valid, it returns true
+	bool checkDeviceSuitable(vk::PhysicalDevice device);
 	bool checkValidationLayerSupport();
+	//^ Various checks ===============================================
 };

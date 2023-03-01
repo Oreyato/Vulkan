@@ -25,7 +25,9 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 	{
 		createInstance();
 		setupDebugMessenger();
+		surface = createSurface();
 		getPhysicalDevice();
+		createLogicalDevice();
 	}
 	catch (const std::runtime_error& e)
 	{
@@ -58,6 +60,7 @@ void VulkanRenderer::clean()
 		//destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 	}
 
+	instance.destroySurfaceKHR(surface);
 	mainDevice.logicalDevice.destroy();
 	instance.destroy();
 }
@@ -154,6 +157,21 @@ void VulkanRenderer::populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreat
 	createInfo.pfnUserCallback = debugCallback;
 }
 
+vk::SurfaceKHR VulkanRenderer::createSurface()
+{
+	// Create a surface relatively to our window
+	VkSurfaceKHR _surface;
+
+	VkResult result = glfwCreateWindowSurface(instance, window, nullptr, &_surface);
+
+	if (result != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to create a vulkan surface.");
+	}
+
+	return vk::SurfaceKHR(_surface);
+}
+
 VkResult VulkanRenderer::createDebugUtilsMessengerEXT(VkInstance instance, 
 													  const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, 
 													  const VkAllocationCallbacks* pAllocator, 
@@ -205,6 +223,28 @@ bool VulkanRenderer::checkInstanceExtensionSupport(const std::vector<const char*
 	return true;
 }
 
+bool VulkanRenderer::checkDeviceExtensionSupport(vk::PhysicalDevice device)
+{
+	vector<vk::ExtensionProperties> extensions = device.enumerateDeviceExtensionProperties();
+
+	for (const auto& deviceExtension : deviceExtensions)
+	{
+		bool hasExtension = false;
+
+		for (const auto& extension : extensions)
+		{
+			if (strcmp(deviceExtension, extension.extensionName) == 0)
+			{
+				hasExtension = true;
+				break;
+			}
+		}
+
+		if (!hasExtension) return false;
+	}
+
+	return true;
+}
 
 void VulkanRenderer::getPhysicalDevice()
 {
@@ -239,7 +279,9 @@ bool VulkanRenderer::checkDeviceSuitable(vk::PhysicalDevice device)
 	// For now we do nothing with this info
 	QueueFamilyIndices indices = getQueueFamilies(device);
 
-	return indices.isValid();
+	bool extensionSupported = checkDeviceExtensionSupport(device);
+
+	return indices.isValid() && extensionSupported;
 }
 
 QueueFamilyIndices VulkanRenderer::getQueueFamilies(vk::PhysicalDevice device)
@@ -256,6 +298,14 @@ QueueFamilyIndices VulkanRenderer::getQueueFamilies(vk::PhysicalDevice device)
 		{
 			indices.graphicsFamily = i;
 		}
+
+		// Check if queue family support presentation
+		VkBool32 presentationSupport = device.getSurfaceSupportKHR(static_cast<uint32_t>(indices.graphicsFamily), surface);
+		if (queueFamily.queueCount > 0 && presentationSupport)
+		{
+			indices.presentationFamily = i;
+		}
+
 		if (indices.isValid()) break;
 		++i;
 	}
@@ -305,6 +355,7 @@ void VulkanRenderer::createLogicalDevice()
 
 	// Ensure access to queues
 	graphicsQueue = mainDevice.logicalDevice.getQueue(indices.graphicsFamily, 0);
+	presentationQueue = mainDevice.logicalDevice.getQueue(indices.presentationFamily, 0);
 }
 
 bool VulkanRenderer::checkValidationLayerSupport()
