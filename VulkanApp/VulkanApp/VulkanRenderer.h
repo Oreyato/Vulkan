@@ -1,7 +1,6 @@
 #pragma once
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <vulkan/vulkan.hpp>
 
 #include <stdexcept>
 #include <vector>
@@ -23,6 +22,7 @@ public:
 	int init(GLFWwindow* windowP);
 
 	std::vector<const char*> getRequiredExtensions();
+	SwapchainDetails getSwapchainDetails(vk::PhysicalDevice device);
 
 	void clean();
 
@@ -40,12 +40,22 @@ private:
 	vk::Instance instance; // vk:: -> C++ API
 
 	vk::Queue graphicsQueue;
-
-	vk::SurfaceKHR surface;
 	vk::Queue presentationQueue;
 
-	vk::SurfaceKHR createSurface();
+	vk::SurfaceKHR surface;
+	void createSurface();
+	//v Swapchain ====================================================
+	vk::SwapchainKHR swapchain;
 
+	vk::Format swapchainImageFormat;
+	vk::Extent2D swapchainExtent;
+
+	void createSwapchain();
+	
+	vk::SurfaceFormatKHR chooseBestSurfaceFormat(const vector<vk::SurfaceFormatKHR>& formats);
+	vk::PresentModeKHR chooseBestPresentationMode(const vector<vk::PresentModeKHR>& presentationModes);
+	vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& surfaceCapabilities);
+	//^ Swapchain ====================================================
 	//v Messenger ====================================================
 	VkDebugUtilsMessengerEXT debugMessenger;
 	void setupDebugMessenger();

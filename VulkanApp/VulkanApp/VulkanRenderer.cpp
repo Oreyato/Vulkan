@@ -25,9 +25,10 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 	{
 		createInstance();
 		setupDebugMessenger();
-		surface = createSurface();
+		createSurface();
 		getPhysicalDevice();
 		createLogicalDevice();
+		createSwapchain();
 	}
 	catch (const std::runtime_error& e)
 	{
@@ -54,13 +55,31 @@ std::vector<const char*> VulkanRenderer::getRequiredExtensions()
 	return extensions;
 }
 
+SwapchainDetails VulkanRenderer::getSwapchainDetails(vk::PhysicalDevice device)
+{
+	SwapchainDetails swapchainDetails;
+
+	// Capabilities
+	swapchainDetails.surfaceCapabilities = device.getSurfaceCapabilitiesKHR(surface);
+
+	// Formats
+	swapchainDetails.formats = device.getSurfaceFormatsKHR(surface);
+
+	// Presentation modes
+	swapchainDetails.presentationModes = device.getSurfacePresentModesKHR(surface);
+
+	return swapchainDetails;
+}
+
 void VulkanRenderer::clean()
 {
+	mainDevice.logicalDevice.destroySwapchainKHR(swapchain);
+	instance.destroySurfaceKHR(surface);
+
 	if (enableValidationLayers) {
-		//destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+		destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 	}
 
-	instance.destroySurfaceKHR(surface);
 	mainDevice.logicalDevice.destroy();
 	instance.destroy();
 }
@@ -157,7 +176,7 @@ void VulkanRenderer::populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreat
 	createInfo.pfnUserCallback = debugCallback;
 }
 
-vk::SurfaceKHR VulkanRenderer::createSurface()
+void VulkanRenderer::createSurface()
 {
 	// Create a surface relatively to our window
 	VkSurfaceKHR _surface;
@@ -169,7 +188,7 @@ vk::SurfaceKHR VulkanRenderer::createSurface()
 		throw std::runtime_error("Failed to create a vulkan surface.");
 	}
 
-	return vk::SurfaceKHR(_surface);
+	surface = vk::SurfaceKHR(_surface);
 }
 
 VkResult VulkanRenderer::createDebugUtilsMessengerEXT(VkInstance instance, 
@@ -189,6 +208,73 @@ VkResult VulkanRenderer::createDebugUtilsMessengerEXT(VkInstance instance,
 	}
 }
 
+void VulkanRenderer::createSwapchain()
+{
+	// We will pick best settings for the swapchain
+	SwapchainDetails swapchainDetails = getSwapchainDetails(mainDevice.physicalDevice);
+	vk::SurfaceFormatKHR surfaceFormat = chooseBestSurfaceFormat(swapchainDetails.formats);
+	vk::PresentModeKHR presentationMode = chooseBestPresentationMode(swapchainDetails.presentationModes);
+	vk::Extent2D extent = chooseSwapExtent(swapchainDetails.surfaceCapabilities);
+
+	//v Swapchain info ===============================================
+	vk::SwapchainCreateInfoKHR swapchainCreateInfo{};
+	swapchainCreateInfo.surface = surface;
+	swapchainCreateInfo.imageFormat = surfaceFormat.format;
+	swapchainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
+	swapchainCreateInfo.presentMode = presentationMode;
+	swapchainCreateInfo.imageExtent = extent;
+
+	// Minimal number of image in our swapchain. We will use one
+	// more than the minimum to enable triple-buffering.
+	uint32_t imageCount = swapchainDetails.surfaceCapabilities.minImageCount + 1;
+	if (swapchainDetails.surfaceCapabilities.maxImageCount > 0 // Not limitless
+		&& swapchainDetails.surfaceCapabilities.maxImageCount < imageCount)
+	{
+		imageCount = swapchainDetails.surfaceCapabilities.maxImageCount;
+	}
+	swapchainCreateInfo.minImageCount = imageCount;
+
+	// Number of layers for each image in swapchain
+	swapchainCreateInfo.imageArrayLayers = 1;
+	// What attachment go with the image (e.g. depth, stencil...). Here, just color.
+	swapchainCreateInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
+	// Transform to perform on swapchain images
+	swapchainCreateInfo.preTransform = swapchainDetails.surfaceCapabilities.currentTransform;
+	// Handles blending with other windows. Here we don't blend.
+	swapchainCreateInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
+	// Whether to clip parts of the image not in view (e.g. when an other window overlaps)
+	swapchainCreateInfo.clipped = VK_TRUE;
+	//^ Swapchain info ===============================================
+	//v Queue management =============================================
+	QueueFamilyIndices indices = getQueueFamilies(mainDevice.physicalDevice);
+	uint32_t queueFamilyIndices[]{ (uint32_t)indices.graphicsFamily, (uint32_t)indices.presentationFamily };
+
+	// If graphics and presentation families are different, share images between them
+	if (indices.graphicsFamily != indices.presentationFamily)
+	{
+		swapchainCreateInfo.imageSharingMode = vk::SharingMode::eConcurrent;
+		swapchainCreateInfo.queueFamilyIndexCount = 2;
+		swapchainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
+	}
+	else
+	{
+		swapchainCreateInfo.imageSharingMode = vk::SharingMode::eExclusive;
+		swapchainCreateInfo.queueFamilyIndexCount = 0;
+		swapchainCreateInfo.pQueueFamilyIndices = nullptr;
+	}
+	// When you want to pass old swapchain responsibilities when destroying it,
+	// e.g. when you want to resize window, use this
+	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
+	//^ Queue management =============================================
+
+	// Store for later use
+	swapchainImageFormat = surfaceFormat.format;
+	swapchainExtent = extent;
+
+	// Create swapchain
+	swapchain = mainDevice.logicalDevice.createSwapchainKHR(swapchainCreateInfo);
+}
+
 void VulkanRenderer::destroyDebugUtilsMessengerEXT(VkInstance instance,
 	VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator)
 {
@@ -197,6 +283,69 @@ void VulkanRenderer::destroyDebugUtilsMessengerEXT(VkInstance instance,
 	if (func != nullptr)
 	{
 		func(instance, debugMessenger, pAllocator);
+	}
+}
+
+vk::SurfaceFormatKHR VulkanRenderer::chooseBestSurfaceFormat(const vector<vk::SurfaceFormatKHR>& formats)
+{
+	// We will use RGBA 32bits normalized and SRGG non linear colorspace
+	if (formats.size() == 1 && formats[0].format == vk::Format::eUndefined)
+	{
+		// All formats available by convention
+		return { vk::Format::eR8G8B8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear };
+	}
+
+	for (auto& format : formats)
+	{
+		if (format.format == vk::Format::eR8G8B8A8Unorm
+			&& format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear)
+		{
+			return format;
+		}
+	}
+
+	// Return first format if we have not our chosen format
+	return formats[0];
+}
+
+vk::PresentModeKHR VulkanRenderer::chooseBestPresentationMode(const vector<vk::PresentModeKHR>& presentationModes)
+{
+	// We will use mail box presentation mode
+	for (const auto& presentationMode : presentationModes)
+	{
+		if (presentationMode == vk::PresentModeKHR::eMailbox)
+		{
+			return presentationMode;
+		}
+	}
+
+	// Part of the Vulkan spec, so have to be available
+	return vk::PresentModeKHR::eFifo;
+}
+
+vk::Extent2D VulkanRenderer::chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& surfaceCapabilities)
+{
+	// Rigid extents
+	if (surfaceCapabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+	{
+		return surfaceCapabilities.currentExtent;
+	}
+	// Extents can vary
+	else
+	{
+		// Create new extent using window size
+		int width, height;
+		glfwGetFramebufferSize(window, &width, &height);
+		vk::Extent2D newExtent{};
+		newExtent.width = static_cast<uint32_t>(width);
+		newExtent.height = static_cast<uint32_t>(height);
+		// Surface also defines max and min, so make sure we are within boundaries
+		newExtent.width = std::max(surfaceCapabilities.minImageExtent.width,
+			std::min(surfaceCapabilities.maxImageExtent.width, newExtent.width));
+		newExtent.height = std::max(surfaceCapabilities.minImageExtent.height,
+			std::min(surfaceCapabilities.maxImageExtent.height, newExtent.height));
+
+		return newExtent;
 	}
 }
 
@@ -280,8 +429,14 @@ bool VulkanRenderer::checkDeviceSuitable(vk::PhysicalDevice device)
 	QueueFamilyIndices indices = getQueueFamilies(device);
 
 	bool extensionSupported = checkDeviceExtensionSupport(device);
+	bool swapchainValid = false;
 
-	return indices.isValid() && extensionSupported;
+	if (extensionSupported) {
+		SwapchainDetails swapchainDetails = getSwapchainDetails(device);
+		swapchainValid = !swapchainDetails.presentationModes.empty() && !swapchainDetails.formats.empty();
+	}
+
+	return indices.isValid() && extensionSupported && swapchainValid;
 }
 
 QueueFamilyIndices VulkanRenderer::getQueueFamilies(vk::PhysicalDevice device)
