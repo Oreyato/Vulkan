@@ -23,7 +23,9 @@ public:
 	std::vector<const char*> getRequiredExtensions();
 	SwapchainDetails getSwapchainDetails(vk::PhysicalDevice device);
 
-	void clean();
+	void draw(); // <------------------------------------------------- DRAW 
+
+	void clean(); // <------------------------------------------------ CLEAN 
 
 #ifdef NODEBUG
 	static const bool enableValidationLayers = false;
@@ -40,6 +42,8 @@ private:
 
 	vk::Queue graphicsQueue;
 	vk::Queue presentationQueue;
+
+	int currentFrame{ 0 };
 
 	// -- SURFACE --
 	vk::SurfaceKHR surface;
@@ -109,5 +113,18 @@ private:
 	vk::CommandPool graphicsCommandPool;
 	void createGraphicsCommandPool();
 
+	// -- COMMAND BUFFER --
+	void recordCommands();
+	std::vector<vk::CommandBuffer> commandBuffers;
+	void createGraphicsCommandBuffers();
+
 	//^ Graphic Pipeline =============================================
+
+	//v Synchronisation ==============================================
+	vk::Semaphore imageAvailable;
+	vk::Semaphore renderFinished;
+
+	void createSynchronisation();
+
+	//^ Synchronisation ==============================================
 };

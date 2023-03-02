@@ -33,6 +33,9 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 		createGraphicPipeline();
 		createFramebuffers();
 		createGraphicsCommandPool();
+		// createGraphicsCommandBuffers(); // <--- Don't needed because of the pool
+		recordCommands();
+		createSynchronisation();
 	}
 	catch (const std::runtime_error& e)
 	{
@@ -75,8 +78,44 @@ SwapchainDetails VulkanRenderer::getSwapchainDetails(vk::PhysicalDevice device)
 	return swapchainDetails;
 }
 
+void VulkanRenderer::draw()
+{
+	// 1. Get next available image to draw and set a semaphore to signal when we're finished with the image.
+	uint32_t imageToBeDrawnIndex = (mainDevice.logicalDevice.acquireNextImageKHR(swapchain, std::numeric_limits<uint32_t>::max(), imageAvailable, VK_NULL_HANDLE)).value;
+	
+	// 2. Submit command buffer to queue for execution, make sure it waits for the image to be signaled as available before drawing, 
+	// and signals when it has finished rendering.
+	vk::SubmitInfo submitInfo{};
+	submitInfo.waitSemaphoreCount = 1;
+	submitInfo.pWaitSemaphores = &imageAvailable;
+	// Keep doing command buffer until imageAvailable is true
+	vk::PipelineStageFlags waitStages[]{ vk::PipelineStageFlagBits::eColorAttachmentOutput };
+	// Stages to check semaphores at
+	submitInfo.pWaitDstStageMask = waitStages;
+	submitInfo.commandBufferCount = 1;
+	// Command buffer to submit
+	submitInfo.pCommandBuffers = &commandBuffers[imageToBeDrawnIndex];
+	// Semaphores to signal when command buffer finishes
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores = &renderFinished[currentFrame];
+
+	graphicsQueue.submit(submitInfo, VK_NULL_HANDLE);
+
+	// 3. Present image to screen when it has signalled finished rendering
+	vk::PresentInfoKHR presentInfo{};
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pWaitSemaphores = &renderFinished;
+	presentInfo.swapchainCount = 1;
+	// Swapchains to present to
+	presentInfo.pSwapchains = &swapchain;
+	// Index of images in swapchains to present
+	presentInfo.pImageIndices = &imageToBeDrawnIndex;
+	presentationQueue.presentKHR(presentInfo);
+}
+
 void VulkanRenderer::clean()
 {
+	mainDevice.logicalDevice.waitIdle();
 	mainDevice.logicalDevice.destroySwapchainKHR(swapchain);
 	instance.destroySurfaceKHR(surface);
 
@@ -92,6 +131,9 @@ void VulkanRenderer::clean()
 	for (vk::Framebuffer& framebuffer : swapchainFramebuffers) {
 		mainDevice.logicalDevice.destroyFramebuffer(framebuffer);
 	}
+
+	mainDevice.logicalDevice.destroySemaphore(renderFinished);
+	mainDevice.logicalDevice.destroySemaphore(imageAvailable);
 
 	mainDevice.logicalDevice.destroyCommandPool(graphicsCommandPool);
 	mainDevice.logicalDevice.destroyPipeline(graphicsPipeline);
@@ -892,5 +934,74 @@ void VulkanRenderer::createGraphicsCommandPool()
 	graphicsCommandPool = mainDevice.logicalDevice.createCommandPool(poolInfo);
 }
 
+void VulkanRenderer::recordCommands() {
+	// How to begin each command buffer
+	vk::CommandBufferBeginInfo commandBufferBeginInfo{};
+	// Buffer can be resubmited when it has already been submited
+	commandBufferBeginInfo.flags = vk::CommandBufferUsageFlagBits::eSimultaneousUse;
+
+	// Information about how to being a render pass (only for graphical apps)
+	vk::RenderPassBeginInfo renderPassBeginInfo{};
+	// Render pass to begin
+	renderPassBeginInfo.renderPass = renderPass;
+	// Start point of render pass in pixel
+	renderPassBeginInfo.renderArea.offset = vk::Offset2D{ 0, 0 };
+	// Size of region to run render pass on
+	renderPassBeginInfo.renderArea.extent = swapchainExtent;
+
+	vk::ClearValue clearValues{};
+	std::array<float, 4> colors{ 0.6f, 0.65f, 0.4f, 1.0f };
+	clearValues.color = vk::ClearColorValue{ colors };
+	renderPassBeginInfo.pClearValues = &clearValues;
+	renderPassBeginInfo.clearValueCount = 1;
+
+	for (size_t i = 0; i < commandBuffers.size(); ++i)
+	{
+		// Because 1-to-1 relationship
+		renderPassBeginInfo.framebuffer = swapchainFramebuffers[i];
+		// Start recording commands to command buffer
+		commandBuffers[i].begin(commandBufferBeginInfo);
+		// Begin render pass
+		// All draw commands inline (no secondary command buffers)
+		commandBuffers[i].beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
+		// Bind pipeline to be used in render pass, you could switch pipelines for different subpasses
+		commandBuffers[i].bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
+		// Execute pipeline
+		// Draw 3 vertices, 1 instance, with no offset. Instance allow you
+		// to draw several instances with one draw call.
+		commandBuffers[i].draw(3, 1, 0, 0);
+		// End render pass
+		commandBuffers[i].endRenderPass();
+		// Stop recordind to command buffer
+		commandBuffers[i].end();
+	}
+}
+
+void VulkanRenderer::createGraphicsCommandBuffers()
+{
+	// Create one command buffer for each framebuffer
+	commandBuffers.resize(swapchainFramebuffers.size());
+
+	vk::CommandBufferAllocateInfo commandBufferAllocInfo{}; // We are using a pool
+	commandBufferAllocInfo.commandPool = graphicsCommandPool;
+	commandBufferAllocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
+
+	// Primary means the command buffer will submit directly to a queue.
+	// Secondary cannot be called by a queue, but by an other primary command
+	// buffer, via vkCmdExecuteCommands.
+	commandBufferAllocInfo.level = vk::CommandBufferLevel::ePrimary;
+
+	commandBuffers = mainDevice.logicalDevice.allocateCommandBuffers(commandBufferAllocInfo);
+}
+
 #pragma endregion Graphic Pipeline
+
+void VulkanRenderer::createSynchronisation() {
+	// Semaphore creation info
+	vk::SemaphoreCreateInfo semaphoreCreateInfo{}; // That's all !
+
+	imageAvailable = mainDevice.logicalDevice.createSemaphore(semaphoreCreateInfo);
+	renderFinished = mainDevice.logicalDevice.createSemaphore(semaphoreCreateInfo);
+}
+
 #pragma endregion
