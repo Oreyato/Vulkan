@@ -139,7 +139,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="VulkanRenderer.h" />
-    <ClInclude Include="VulkanUtilies.h" />
+    <ClInclude Include="VulkanUtilities.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\shader.frag" />

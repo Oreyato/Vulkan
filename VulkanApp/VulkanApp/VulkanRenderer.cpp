@@ -597,19 +597,18 @@ void VulkanRenderer::createRenderPass()
 	vk::AttachmentDescription colorAttachment{};
 	// Format to use for attachment
 	colorAttachment.format = swapchainImageFormat;
-	// Number of samples t write for multisampling
+	// Number of samples to write for multisampling
 	colorAttachment.samples = vk::SampleCountFlagBits::e1;
-	// What to do with attachement before renderer. Here, clear when we start the render pass.
-	colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;
-	// What to do with attachement after renderer. Here, store the render pass.
-	colorAttachment.storeOp = vk::AttachmentStoreOp::eStore;
-	// What to do with stencil before renderer. Here, don't care, we don't use stencil.
-	colorAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-	// What to do with stencil after renderer. Here, don't care, we don't use stencil.
-	colorAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+	// What to do with attachement before renderer. 
+	colorAttachment.loadOp = vk::AttachmentLoadOp::eClear; // <--- Here, clear when we start the render pass.
+	// What to do with attachement after renderer.
+	colorAttachment.storeOp = vk::AttachmentStoreOp::eStore; // <--- Here, store the render pass.
+	// What to do with stencil before renderer. 
+	colorAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare; // <--- Here, don't care, we don't use stencil.
+	// What to do with stencil after renderer. 
+	colorAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare; // <--- Here, don't care, we don't use stencil.
 
-	// Framebuffer images will be stored as an image, but image can have different layouts
-	// to give optimal use for certain operations
+	// Framebuffer images will be stored as an image, but image can have different layouts to give optimal use for certain operations
 	// Image data layout before render pass starts
 	colorAttachment.initialLayout = vk::ImageLayout::eUndefined;
 	// Image data layout after render pass
@@ -618,8 +617,7 @@ void VulkanRenderer::createRenderPass()
 	renderPassCreateInfo.attachmentCount = 1;
 	renderPassCreateInfo.pAttachments = &colorAttachment;
 
-	// Attachment reference uses an attachment index that refers to index
-	// in the attachement list passed to renderPassCreateInfo
+	// Attachment reference uses an attachment index that refers to index in the attachement list passed to renderPassCreateInfo
 	vk::AttachmentReference colorAttachmentReference{};
 	colorAttachmentReference.attachment = 0;
 	// Layout of the subpass (between initial and final layout)
@@ -738,8 +736,8 @@ void VulkanRenderer::createGraphicPipeline()
 	viewportStateCreateInfo.pScissors = &scissor;
 
 	// -- DYNAMIC STATE --
-	// This will be alterable, so you don't have to create an entire pipeline when you want to change
-	// parameters. We won't use this feature, this is an example.
+	// This will be alterable, so you don't have to create an entire pipeline when you want to change parameters. 
+	// We won't use this feature, this is an example.
 	/*
 	vector<vk::DynamicState> dynamicStateEnables;
 	// Viewport can be resized in the command buffer with vkCmdSetViewport(commandBuffer, 0, 1, &newViewport);
@@ -757,9 +755,8 @@ void VulkanRenderer::createGraphicPipeline()
 	rasterizerCreateInfo.depthClampEnable = VK_FALSE;
 	// Whether to discard data and skip rasterizer. When you want a pipeline without framebuffer.
 	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
-	// How to handle filling points between vertices. Here, considers things inside
-	// the polygon as a fragment. VK_POLYGON_MODE_LINE will consider element inside
-	// polygones being empty (no fragment). May require a device feature.
+	// How to handle filling points between vertices. Here, considers things inside the polygon as a fragment. 
+	// VK_POLYGON_MODE_LINE will consider element inside polygones being empty (no fragment). May require a device feature.
 	rasterizerCreateInfo.polygonMode = vk::PolygonMode::eFill;
 	// How thick should line be when drawn
 	rasterizerCreateInfo.lineWidth = 1.0f;
@@ -791,7 +788,7 @@ void VulkanRenderer::createGraphicPipeline()
 		vk::ColorComponentFlagBits::eA;
 	colorBlendAttachment.blendEnable = VK_TRUE;
 
-	// Blending equation:
+	//v Blending equation ===================
 	// (srcColorBlendFactor * new color) colorBlendOp (dstColorBlendFactor * old color)
 	colorBlendAttachment.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha;
 	colorBlendAttachment.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
@@ -802,6 +799,7 @@ void VulkanRenderer::createGraphicPipeline()
 	colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;
 	colorBlendingCreateInfo.attachmentCount = 1;
 	colorBlendingCreateInfo.pAttachments = &colorBlendAttachment;
+	//^ Blending equation ===================
 
 	// -- PIPELINE LAYOUT --
 	// TODO: apply future descriptorset layout
@@ -851,11 +849,6 @@ void VulkanRenderer::createGraphicPipeline()
 		throw std::runtime_error("Cound not create a graphics pipeline");
 	}
 	graphicsPipeline = result.value;
-
-	// Destroy shader modules
-	mainDevice.logicalDevice.destroyShaderModule(fragmentShaderModule);
-	mainDevice.logicalDevice.destroyShaderModule(vertexShaderModule);
-
 	//^ Create Pipeline ==============================================
 
 	// Destroy shader modules

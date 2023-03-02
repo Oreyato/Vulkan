@@ -29,7 +29,7 @@
     <ClInclude Include="VulkanRenderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="VulkanUtilies.h">
+    <ClInclude Include="VulkanUtilities.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
