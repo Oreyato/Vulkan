@@ -6,6 +6,7 @@
 
 #include "VulkanUtilities.h"
 
+
 struct 
 {
 	vk::PhysicalDevice physicalDevice;
@@ -44,6 +45,8 @@ private:
 	vk::Queue presentationQueue;
 
 	int currentFrame{ 0 };
+	const int MAX_FRAME_DRAWS{ 2 }; // <--- Should be less than the nb of swapchain images, which is 3
+	std::vector<vk::Fence> drawFences;
 
 	// -- SURFACE --
 	vk::SurfaceKHR surface;
@@ -121,8 +124,8 @@ private:
 	//^ Graphic Pipeline =============================================
 
 	//v Synchronisation ==============================================
-	vk::Semaphore imageAvailable;
-	vk::Semaphore renderFinished;
+	std::vector<vk::Semaphore> imageAvailable;
+	std::vector<vk::Semaphore> renderFinished;
 
 	void createSynchronisation();
 

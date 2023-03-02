@@ -33,7 +33,7 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 		createGraphicPipeline();
 		createFramebuffers();
 		createGraphicsCommandPool();
-		// createGraphicsCommandBuffers(); // <--- Don't needed because of the pool
+		createGraphicsCommandBuffers(); // <--- Don't needed because of the pool (?)
 		recordCommands();
 		createSynchronisation();
 	}
@@ -80,14 +80,19 @@ SwapchainDetails VulkanRenderer::getSwapchainDetails(vk::PhysicalDevice device)
 
 void VulkanRenderer::draw()
 {
+	// 0. Freeze code until the drawFences[currentFrame] is open
+	mainDevice.logicalDevice.waitForFences(drawFences[currentFrame], VK_TRUE, std::numeric_limits<uint32_t>::max());
+	// When passing the fence, we close it behind us
+	mainDevice.logicalDevice.resetFences(drawFences[currentFrame]);
+
 	// 1. Get next available image to draw and set a semaphore to signal when we're finished with the image.
-	uint32_t imageToBeDrawnIndex = (mainDevice.logicalDevice.acquireNextImageKHR(swapchain, std::numeric_limits<uint32_t>::max(), imageAvailable, VK_NULL_HANDLE)).value;
+	uint32_t imageToBeDrawnIndex = (mainDevice.logicalDevice.acquireNextImageKHR(swapchain,	std::numeric_limits<uint32_t>::max(), imageAvailable[currentFrame], VK_NULL_HANDLE)).value;
 	
 	// 2. Submit command buffer to queue for execution, make sure it waits for the image to be signaled as available before drawing, 
 	// and signals when it has finished rendering.
 	vk::SubmitInfo submitInfo{};
 	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = &imageAvailable;
+	submitInfo.pWaitSemaphores = &imageAvailable[currentFrame];
 	// Keep doing command buffer until imageAvailable is true
 	vk::PipelineStageFlags waitStages[]{ vk::PipelineStageFlagBits::eColorAttachmentOutput };
 	// Stages to check semaphores at
@@ -99,47 +104,57 @@ void VulkanRenderer::draw()
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = &renderFinished[currentFrame];
 
-	graphicsQueue.submit(submitInfo, VK_NULL_HANDLE);
+	graphicsQueue.submit(submitInfo, drawFences[currentFrame]);
 
 	// 3. Present image to screen when it has signalled finished rendering
 	vk::PresentInfoKHR presentInfo{};
 	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pWaitSemaphores = &renderFinished;
+	presentInfo.pWaitSemaphores = &renderFinished[currentFrame];
 	presentInfo.swapchainCount = 1;
 	// Swapchains to present to
 	presentInfo.pSwapchains = &swapchain;
 	// Index of images in swapchains to present
 	presentInfo.pImageIndices = &imageToBeDrawnIndex;
 	presentationQueue.presentKHR(presentInfo);
+
+	currentFrame = (currentFrame + 1) % MAX_FRAME_DRAWS;
 }
 
 void VulkanRenderer::clean()
 {
 	mainDevice.logicalDevice.waitIdle();
-	mainDevice.logicalDevice.destroySwapchainKHR(swapchain);
-	instance.destroySurfaceKHR(surface);
 
-	if (enableValidationLayers) {
-		destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+	mainDevice.logicalDevice.destroySwapchainKHR(swapchain);
+
+	for (vk::Framebuffer& framebuffer : swapchainFramebuffers) {
+		mainDevice.logicalDevice.destroyFramebuffer(framebuffer);
 	}
+
+	for (size_t i = 0; i < MAX_FRAME_DRAWS; ++i)
+	{
+		mainDevice.logicalDevice.destroySemaphore(renderFinished[i]);
+		mainDevice.logicalDevice.destroySemaphore(imageAvailable[i]);
+		mainDevice.logicalDevice.destroyFence(drawFences[i]);
+	}	
+
+	mainDevice.logicalDevice.destroyCommandPool(graphicsCommandPool);
+	mainDevice.logicalDevice.destroyPipeline(graphicsPipeline);
+	mainDevice.logicalDevice.destroyPipelineLayout(pipelineLayout);
+	mainDevice.logicalDevice.destroyRenderPass(renderPass);
 
 	for (SwapchainImage& image : swapchainImages)
 	{
 		mainDevice.logicalDevice.destroyImageView(image.imageView);
 	}
 
-	for (vk::Framebuffer& framebuffer : swapchainFramebuffers) {
-		mainDevice.logicalDevice.destroyFramebuffer(framebuffer);
+	instance.destroySurfaceKHR(surface);
+
+	if (enableValidationLayers) {
+		destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 	}
 
-	mainDevice.logicalDevice.destroySemaphore(renderFinished);
-	mainDevice.logicalDevice.destroySemaphore(imageAvailable);
-
-	mainDevice.logicalDevice.destroyCommandPool(graphicsCommandPool);
-	mainDevice.logicalDevice.destroyPipeline(graphicsPipeline);
-	mainDevice.logicalDevice.destroyPipelineLayout(pipelineLayout);
-	mainDevice.logicalDevice.destroyRenderPass(renderPass);
 	mainDevice.logicalDevice.destroy();
+
 	instance.destroy();
 }
 
@@ -938,7 +953,7 @@ void VulkanRenderer::recordCommands() {
 	// How to begin each command buffer
 	vk::CommandBufferBeginInfo commandBufferBeginInfo{};
 	// Buffer can be resubmited when it has already been submited
-	commandBufferBeginInfo.flags = vk::CommandBufferUsageFlagBits::eSimultaneousUse;
+	// commandBufferBeginInfo.flags = vk::CommandBufferUsageFlagBits::eSimultaneousUse;
 
 	// Information about how to being a render pass (only for graphical apps)
 	vk::RenderPassBeginInfo renderPassBeginInfo{};
@@ -982,12 +997,11 @@ void VulkanRenderer::createGraphicsCommandBuffers()
 	// Create one command buffer for each framebuffer
 	commandBuffers.resize(swapchainFramebuffers.size());
 
-	vk::CommandBufferAllocateInfo commandBufferAllocInfo{}; // We are using a pool
+	vk::CommandBufferAllocateInfo commandBufferAllocInfo{};		// We are using a pool
 	commandBufferAllocInfo.commandPool = graphicsCommandPool;
 	commandBufferAllocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
-
-	// Primary means the command buffer will submit directly to a queue.
-	// Secondary cannot be called by a queue, but by an other primary command
+	// Primary means the command buffer will submit directly to a queue. 
+	// Secondary cannot be called by a queue, but by an other primary command 
 	// buffer, via vkCmdExecuteCommands.
 	commandBufferAllocInfo.level = vk::CommandBufferLevel::ePrimary;
 
@@ -997,11 +1011,24 @@ void VulkanRenderer::createGraphicsCommandBuffers()
 #pragma endregion Graphic Pipeline
 
 void VulkanRenderer::createSynchronisation() {
+	imageAvailable.resize(MAX_FRAME_DRAWS);
+	renderFinished.resize(MAX_FRAME_DRAWS);
+	drawFences.resize(MAX_FRAME_DRAWS);
+
 	// Semaphore creation info
 	vk::SemaphoreCreateInfo semaphoreCreateInfo{}; // That's all !
 
-	imageAvailable = mainDevice.logicalDevice.createSemaphore(semaphoreCreateInfo);
-	renderFinished = mainDevice.logicalDevice.createSemaphore(semaphoreCreateInfo);
+	// Fence creation info
+	vk::FenceCreateInfo fenceCreateInfo{};
+	// Fence starts open
+	fenceCreateInfo.flags = vk::FenceCreateFlagBits::eSignaled;
+
+	for (size_t i = 0; i < MAX_FRAME_DRAWS; ++i)
+	{
+		imageAvailable[i] = mainDevice.logicalDevice.createSemaphore(semaphoreCreateInfo);
+		renderFinished[i] = mainDevice.logicalDevice.createSemaphore(semaphoreCreateInfo);
+		drawFences[i] = mainDevice.logicalDevice.createFence(fenceCreateInfo);
+	}
 }
 
 #pragma endregion
