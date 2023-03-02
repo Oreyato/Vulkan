@@ -104,6 +104,7 @@ void VulkanRenderer::draw()
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = &renderFinished[currentFrame];
 
+	// When finished drawing, open the fence for the next submission
 	graphicsQueue.submit(submitInfo, drawFences[currentFrame]);
 
 	// 3. Present image to screen when it has signalled finished rendering
@@ -123,8 +124,6 @@ void VulkanRenderer::draw()
 void VulkanRenderer::clean()
 {
 	mainDevice.logicalDevice.waitIdle();
-
-	mainDevice.logicalDevice.destroySwapchainKHR(swapchain);
 
 	for (vk::Framebuffer& framebuffer : swapchainFramebuffers) {
 		mainDevice.logicalDevice.destroyFramebuffer(framebuffer);
@@ -147,6 +146,7 @@ void VulkanRenderer::clean()
 		mainDevice.logicalDevice.destroyImageView(image.imageView);
 	}
 
+	mainDevice.logicalDevice.destroySwapchainKHR(swapchain);
 	instance.destroySurfaceKHR(surface);
 
 	if (enableValidationLayers) {
@@ -934,7 +934,27 @@ VkShaderModule VulkanRenderer::createShaderModule(const vector<char>& code) {
 
 void VulkanRenderer::createFramebuffers()
 {
+	// Create one framebuffer for each swapchain image
+	swapchainFramebuffers.resize(swapchainImages.size());
+	for (size_t i = 0; i < swapchainFramebuffers.size(); ++i)
+	{
+		// Setup attachments
+		std::array<vk::ImageView, 1> attachments{ swapchainImages[i].imageView };
 
+		// Create info
+		vk::FramebufferCreateInfo framebufferCreateInfo{};
+		// Render pass layout the framebuffer will be used with
+		framebufferCreateInfo.renderPass = renderPass;
+		framebufferCreateInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+		// List of attachments (1:1 with render pass, thanks to variable i)
+		framebufferCreateInfo.pAttachments = attachments.data();
+		framebufferCreateInfo.width = swapchainExtent.width;
+		framebufferCreateInfo.height = swapchainExtent.height;
+		// Framebuffer layers
+		framebufferCreateInfo.layers = 1;
+
+		swapchainFramebuffers[i] = mainDevice.logicalDevice.createFramebuffer(framebufferCreateInfo);
+	}
 }
 
 void VulkanRenderer::createGraphicsCommandPool()
@@ -1016,7 +1036,7 @@ void VulkanRenderer::createSynchronisation() {
 	drawFences.resize(MAX_FRAME_DRAWS);
 
 	// Semaphore creation info
-	vk::SemaphoreCreateInfo semaphoreCreateInfo{}; // That's all !
+	vk::SemaphoreCreateInfo semaphoreCreateInfo{};
 
 	// Fence creation info
 	vk::FenceCreateInfo fenceCreateInfo{};

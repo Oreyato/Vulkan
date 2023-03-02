@@ -2,10 +2,6 @@
 #include <GLFW/glfw3.h>
 
 #include <stdexcept>
-#include <vector>
-#include <string>
-
-using std::string;
 
 #include "VulkanRenderer.h"
 
