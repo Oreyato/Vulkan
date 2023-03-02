@@ -29,6 +29,8 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 		getPhysicalDevice();
 		createLogicalDevice();
 		createSwapchain();
+		createRenderPass();
+		createGraphicPipeline();
 	}
 	catch (const std::runtime_error& e)
 	{
@@ -85,6 +87,9 @@ void VulkanRenderer::clean()
 		mainDevice.logicalDevice.destroyImageView(image.imageView);
 	}
 
+	mainDevice.logicalDevice.destroyPipeline(graphicsPipeline);
+	mainDevice.logicalDevice.destroyPipelineLayout(pipelineLayout);
+	mainDevice.logicalDevice.destroyRenderPass(renderPass);
 	mainDevice.logicalDevice.destroy();
 	instance.destroy();
 }
@@ -283,7 +288,7 @@ void VulkanRenderer::createSwapchain()
 	vector<vk::Image> images = mainDevice.logicalDevice.getSwapchainImagesKHR(swapchain);
 
 	for (VkImage image : images) {
-		SwapchainImage swapchainImage{};
+		SwapchainImage swapchainImage{}; 
 		swapchainImage.image = image;
 
 		// Create image view
@@ -581,4 +586,295 @@ bool VulkanRenderer::checkValidationLayerSupport()
 	return true;
 }
 
+#pragma region Graphic Pipeline
+
+void VulkanRenderer::createRenderPass()
+{
+	vk::RenderPassCreateInfo renderPassCreateInfo{};
+
+	// Attachement description : describe color buffer output, depth buffer output...
+	// e.g. (location = 0) in the fragment shader is the first attachment
+	vk::AttachmentDescription colorAttachment{};
+	// Format to use for attachment
+	colorAttachment.format = swapchainImageFormat;
+	// Number of samples t write for multisampling
+	colorAttachment.samples = vk::SampleCountFlagBits::e1;
+	// What to do with attachement before renderer. Here, clear when we start the render pass.
+	colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;
+	// What to do with attachement after renderer. Here, store the render pass.
+	colorAttachment.storeOp = vk::AttachmentStoreOp::eStore;
+	// What to do with stencil before renderer. Here, don't care, we don't use stencil.
+	colorAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+	// What to do with stencil after renderer. Here, don't care, we don't use stencil.
+	colorAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+
+	// Framebuffer images will be stored as an image, but image can have different layouts
+	// to give optimal use for certain operations
+	// Image data layout before render pass starts
+	colorAttachment.initialLayout = vk::ImageLayout::eUndefined;
+	// Image data layout after render pass
+	colorAttachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+
+	renderPassCreateInfo.attachmentCount = 1;
+	renderPassCreateInfo.pAttachments = &colorAttachment;
+
+	// Attachment reference uses an attachment index that refers to index
+	// in the attachement list passed to renderPassCreateInfo
+	vk::AttachmentReference colorAttachmentReference{};
+	colorAttachmentReference.attachment = 0;
+	// Layout of the subpass (between initial and final layout)
+	colorAttachmentReference.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+	// Subpass description, will reference attachements
+	vk::SubpassDescription subpass{};
+	// Pipeline type the subpass will be bound to.
+	// Could be compute pipeline, or nvidia raytracing...
+	subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorAttachmentReference;
+
+	renderPassCreateInfo.subpassCount = 1;
+	renderPassCreateInfo.pSubpasses = &subpass;
+
+	// Subpass dependencies: transitions between subpasses + from the last subpass to what happens after
+	// Need to determine when layout transitions occur using subpass dependencies.
+	// Will define implicitly layout transitions.
+	std::array<vk::SubpassDependency, 2> subpassDependencies;
+	// -- From layout undefined to color attachment optimal
+	// ---- Transition must happens after
+	subpassDependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL; // External: from outside the subpasses
+	// Which stage of the pipeline has to happen before
+	subpassDependencies[0].srcStageMask = vk::PipelineStageFlagBits::eBottomOfPipe;
+	subpassDependencies[0].srcAccessMask = vk::AccessFlagBits::eMemoryRead;
+	// ---- But must happens before
+	// Conversion should happen before the first subpass starts
+	subpassDependencies[0].dstSubpass = 0;
+	subpassDependencies[0].dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	// ...and before the color attachment attempts to read or write
+	subpassDependencies[0].dstAccessMask =
+		vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite;
+	subpassDependencies[0].dependencyFlags = vk::DependencyFlags(); // No dependency flag
+
+	// -- From layout color attachment optimal to image layout present
+	// ---- Transition must happens after	
+	subpassDependencies[1].srcSubpass = 0;
+	subpassDependencies[1].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	subpassDependencies[1].srcAccessMask =
+		vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite;
+	// ---- But must happens before
+	subpassDependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependencies[1].dstStageMask = vk::PipelineStageFlagBits::eBottomOfPipe;
+	subpassDependencies[1].dstAccessMask = vk::AccessFlagBits::eMemoryRead;
+	subpassDependencies[1].dependencyFlags = vk::DependencyFlags();
+
+	renderPassCreateInfo.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
+	renderPassCreateInfo.pDependencies = subpassDependencies.data();
+
+	renderPass = mainDevice.logicalDevice.createRenderPass(renderPassCreateInfo);
+}
+
+void VulkanRenderer::createGraphicPipeline()
+{
+	// Read shader code and format it through a shader module
+	auto vertexShaderCode = readShaderFile("shaders/vert.spv");
+	auto fragmentShaderCode = readShaderFile("shaders/frag.spv");
+	vk::ShaderModule vertexShaderModule = createShaderModule(vertexShaderCode);
+	vk::ShaderModule fragmentShaderModule = createShaderModule(fragmentShaderCode);
+
+	//v Create infos =================================================
+	// Vertex stage creation info
+	vk::PipelineShaderStageCreateInfo vertexShaderCreateInfo{};
+	vertexShaderCreateInfo.stage = vk::ShaderStageFlagBits::eVertex; // Used to know which shader
+	vertexShaderCreateInfo.module = vertexShaderModule;
+	vertexShaderCreateInfo.pName = "main"; // Pointer to the start function in the shader
+
+	// Fragment stage creation info
+	vk::PipelineShaderStageCreateInfo fragmentShaderCreateInfo{};
+	fragmentShaderCreateInfo.stage = vk::ShaderStageFlagBits::eFragment;
+	fragmentShaderCreateInfo.module = fragmentShaderModule;
+	fragmentShaderCreateInfo.pName = "main";
+	//^ Create infos =================================================
+
+	// Graphics pipeline requires an array of shader create info
+	vk::PipelineShaderStageCreateInfo shaderStages[]{
+	vertexShaderCreateInfo, fragmentShaderCreateInfo };
+
+	//v Create Pipeline ==============================================	
+	// -- VERTEX INPUT STAGE --
+	// TODO: Put in vertex description when resources created
+	vk::PipelineVertexInputStateCreateInfo vertexInputCreateInfo{};
+	vertexInputCreateInfo.vertexBindingDescriptionCount = 0;
+	// List of vertex binding desc. (data spacing, stride...)
+	vertexInputCreateInfo.pVertexBindingDescriptions = nullptr;
+	vertexInputCreateInfo.vertexAttributeDescriptionCount = 0;
+	// List of vertex attribute desc. (data format and where to bind to/from)
+	vertexInputCreateInfo.pVertexAttributeDescriptions = nullptr;
+
+	// -- INPUT ASSEMBLY --
+	vk::PipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo{};
+	// How to assemble vertices
+	inputAssemblyCreateInfo.topology = vk::PrimitiveTopology::eTriangleList;
+	// When you want to restart a primitive, e.g. with a strip
+	inputAssemblyCreateInfo.primitiveRestartEnable = VK_FALSE;
+
+	// -- VIEWPORT AND SCISSOR --
+	// Create a viewport info struct
+	vk::Viewport viewport{};
+	viewport.x = 0.0f; // X start coordinate
+	viewport.y = 0.0f; // Y start coordinate
+	viewport.width = (float)swapchainExtent.width; // Width of viewport
+	viewport.height = (float)swapchainExtent.height; // Height of viewport
+	viewport.minDepth = 0.0f; // Min framebuffer depth
+	viewport.maxDepth = 1.0f; // Max framebuffer depth
+
+	// Create a scissor info struct, everything outside is cut
+	vk::Rect2D scissor{};
+	scissor.offset = vk::Offset2D{ 0, 0 };
+	scissor.extent = swapchainExtent;
+	vk::PipelineViewportStateCreateInfo viewportStateCreateInfo{};
+	viewportStateCreateInfo.viewportCount = 1;
+	viewportStateCreateInfo.pViewports = &viewport;
+	viewportStateCreateInfo.scissorCount = 1;
+	viewportStateCreateInfo.pScissors = &scissor;
+
+	// -- DYNAMIC STATE --
+	// This will be alterable, so you don't have to create an entire pipeline when you want to change
+	// parameters. We won't use this feature, this is an example.
+	/*
+	vector<vk::DynamicState> dynamicStateEnables;
+	// Viewport can be resized in the command buffer with vkCmdSetViewport(commandBuffer, 0, 1, &newViewport);
+	dynamicStateEnables.push_back(vk::DynamicState::eViewport);
+	// Scissors can be resized in the command buffer with vkCmdSetScissor(commandBuffer, 0, 1, &newScissor);
+	dynamicStateEnables.push_back(vk::DynamicState::eScissor);
+	vk::PipelineDynamicStateCreateInfo dynamicStateCreateInfo{};
+	dynamicStateCreateInfo.dynamicStateCount = static_cast<uint32_t>(dynamicStateEnables.size());
+	dynamicStateCreateInfo.pDynamicStates = dynamicStateEnables.data();
+	*/
+
+	// -- RASTERIZER --
+	vk::PipelineRasterizationStateCreateInfo rasterizerCreateInfo{};
+	// Treat elements beyond the far plane like being on the far place, needs a GPU device feature
+	rasterizerCreateInfo.depthClampEnable = VK_FALSE;
+	// Whether to discard data and skip rasterizer. When you want a pipeline without framebuffer.
+	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
+	// How to handle filling points between vertices. Here, considers things inside
+	// the polygon as a fragment. VK_POLYGON_MODE_LINE will consider element inside
+	// polygones being empty (no fragment). May require a device feature.
+	rasterizerCreateInfo.polygonMode = vk::PolygonMode::eFill;
+	// How thick should line be when drawn
+	rasterizerCreateInfo.lineWidth = 1.0f;
+	// Culling. Do not draw back of polygons
+	rasterizerCreateInfo.cullMode = vk::CullModeFlagBits::eBack;
+	// Widing to know the front face of a polygon
+	rasterizerCreateInfo.frontFace = vk::FrontFace::eClockwise;
+	// Whether to add a depth offset to fragments. Good for stopping "shadow acne" in shadow mapping.
+	// Is set, need to set 3 other values.
+	rasterizerCreateInfo.depthBiasEnable = VK_FALSE;
+
+	// -- MULTISAMPLING --
+	// Not for textures, only for edges
+	vk::PipelineMultisampleStateCreateInfo multisamplingCreateInfo{};
+	// Enable multisample shading or not
+	multisamplingCreateInfo.sampleShadingEnable = VK_FALSE;
+	// Number of samples to use per fragment
+	multisamplingCreateInfo.rasterizationSamples = vk::SampleCountFlagBits::e1;
+
+	// -- BLENDING --
+	// How to blend a new color being written to the fragment, with the old value
+	vk::PipelineColorBlendStateCreateInfo colorBlendingCreateInfo{};
+	// Alternative to usual blending calculation
+	colorBlendingCreateInfo.logicOpEnable = VK_FALSE;
+	// Enable blending and choose colors to apply blending to
+	vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
+	colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR |
+		vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |
+		vk::ColorComponentFlagBits::eA;
+	colorBlendAttachment.blendEnable = VK_TRUE;
+
+	// Blending equation:
+	// (srcColorBlendFactor * new color) colorBlendOp (dstColorBlendFactor * old color)
+	colorBlendAttachment.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha;
+	colorBlendAttachment.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
+	colorBlendAttachment.colorBlendOp = vk::BlendOp::eAdd;
+	// Replace the old alpha with the new one: (1 * new alpha) + (0 * old alpha)
+	colorBlendAttachment.srcAlphaBlendFactor = vk::BlendFactor::eOne;
+	colorBlendAttachment.dstAlphaBlendFactor = vk::BlendFactor::eZero;
+	colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;
+	colorBlendingCreateInfo.attachmentCount = 1;
+	colorBlendingCreateInfo.pAttachments = &colorBlendAttachment;
+
+	// -- PIPELINE LAYOUT --
+	// TODO: apply future descriptorset layout
+	vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
+	pipelineLayoutCreateInfo.setLayoutCount = 0;
+	pipelineLayoutCreateInfo.pSetLayouts = nullptr;
+	pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
+	pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
+
+	// Create pipeline layout
+	pipelineLayout = mainDevice.logicalDevice.createPipelineLayout(pipelineLayoutCreateInfo);
+
+	// -- DEPTH STENCIL TESTING --
+	// TODO: Set up depth stencil testing
+	
+	// -- PASSES --
+	// Passes are composed of a sequence of subpasses that can pass data from one to another
+
+	// -- GRAPHICS PIPELINE CREATION --
+	vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo{};
+	graphicsPipelineCreateInfo.stageCount = 2;
+	graphicsPipelineCreateInfo.pStages = shaderStages;
+	graphicsPipelineCreateInfo.pVertexInputState = &vertexInputCreateInfo;
+	graphicsPipelineCreateInfo.pInputAssemblyState = &inputAssemblyCreateInfo;
+	graphicsPipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
+	graphicsPipelineCreateInfo.pDynamicState = nullptr;
+	graphicsPipelineCreateInfo.pRasterizationState = &rasterizerCreateInfo;
+	graphicsPipelineCreateInfo.pMultisampleState = &multisamplingCreateInfo;
+	graphicsPipelineCreateInfo.pColorBlendState = &colorBlendingCreateInfo;
+	graphicsPipelineCreateInfo.pDepthStencilState = nullptr;
+	graphicsPipelineCreateInfo.layout = pipelineLayout;
+	// Renderpass description the pipeline is compatible with.
+	// This pipeline will be used by the render pass.
+	graphicsPipelineCreateInfo.renderPass = renderPass;
+	// Subpass of render pass to use with pipeline. Usually one pipeline by subpass.
+	graphicsPipelineCreateInfo.subpass = 0;
+	// When you want to derivate a pipeline from an other pipeline OR
+	graphicsPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+	// Index of pipeline being created to derive from (in case of creating multiple at once)
+	graphicsPipelineCreateInfo.basePipelineIndex = -1;
+
+	// The handle is a cache when you want to save your pipeline to create an other later
+	auto result = mainDevice.logicalDevice.createGraphicsPipeline(VK_NULL_HANDLE, graphicsPipelineCreateInfo);
+	// We could have used createGraphicsPipelines to create multiple pipelines at once.
+	if (result.result != vk::Result::eSuccess)
+	{
+		throw std::runtime_error("Cound not create a graphics pipeline");
+	}
+	graphicsPipeline = result.value;
+
+	// Destroy shader modules
+	mainDevice.logicalDevice.destroyShaderModule(fragmentShaderModule);
+	mainDevice.logicalDevice.destroyShaderModule(vertexShaderModule);
+
+	//^ Create Pipeline ==============================================
+
+	// Destroy shader modules
+	mainDevice.logicalDevice.destroyShaderModule(fragmentShaderModule);
+	mainDevice.logicalDevice.destroyShaderModule(vertexShaderModule);
+}
+
+VkShaderModule VulkanRenderer::createShaderModule(const vector<char>& code) {
+	vk::ShaderModuleCreateInfo shaderModuleCreateInfo{};
+	shaderModuleCreateInfo.codeSize = code.size();
+
+	// Conversion between pointer types with reinterpret_cast
+	shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+	vk::ShaderModule shaderModule = mainDevice.logicalDevice.createShaderModule(shaderModuleCreateInfo);
+	
+	return shaderModule;
+}
+
+
+#pragma endregion Graphic Pipeline
 #pragma endregion

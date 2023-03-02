@@ -4,7 +4,7 @@
 
 #include <stdexcept>
 
-#include "VulkanUtilies.h"
+#include "VulkanUtilities.h"
 
 struct 
 {
@@ -18,7 +18,7 @@ public:
 	VulkanRenderer();
 	~VulkanRenderer();
 
-	int init(GLFWwindow* windowP);
+	int init(GLFWwindow* windowP); // <------------------------------- INIT 
 
 	std::vector<const char*> getRequiredExtensions();
 	SwapchainDetails getSwapchainDetails(vk::PhysicalDevice device);
@@ -33,7 +33,7 @@ public:
 	static const std::vector<const char*> validationLayers;
 
 private:
-	void createInstance();
+	void createInstance(); // <--------------------------------------- CREATE INSTANCE 
 
 	GLFWwindow* window;
 	vk::Instance instance; // vk:: -> C++ API
@@ -87,4 +87,15 @@ private:
 	bool checkDeviceSuitable(vk::PhysicalDevice device);
 	bool checkValidationLayerSupport();
 	//^ Various checks ===============================================
+
+	//v Graphic Pipeline =============================================
+	vk::RenderPass renderPass;
+	void createRenderPass();
+	
+	vk::PipelineLayout pipelineLayout;
+
+	vk::Pipeline graphicsPipeline;
+	void createGraphicPipeline();
+	VkShaderModule createShaderModule(const vector<char>& code);
+	//^ Graphic Pipeline =============================================
 };
