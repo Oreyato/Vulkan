@@ -31,6 +31,8 @@ int VulkanRenderer::init(GLFWwindow* windowP)
 		createSwapchain();
 		createRenderPass();
 		createGraphicPipeline();
+		createFramebuffers();
+		createGraphicsCommandPool();
 	}
 	catch (const std::runtime_error& e)
 	{
@@ -87,6 +89,11 @@ void VulkanRenderer::clean()
 		mainDevice.logicalDevice.destroyImageView(image.imageView);
 	}
 
+	for (vk::Framebuffer& framebuffer : swapchainFramebuffers) {
+		mainDevice.logicalDevice.destroyFramebuffer(framebuffer);
+	}
+
+	mainDevice.logicalDevice.destroyCommandPool(graphicsCommandPool);
 	mainDevice.logicalDevice.destroyPipeline(graphicsPipeline);
 	mainDevice.logicalDevice.destroyPipelineLayout(pipelineLayout);
 	mainDevice.logicalDevice.destroyRenderPass(renderPass);
@@ -868,6 +875,22 @@ VkShaderModule VulkanRenderer::createShaderModule(const vector<char>& code) {
 	return shaderModule;
 }
 
+void VulkanRenderer::createFramebuffers()
+{
+
+}
+
+void VulkanRenderer::createGraphicsCommandPool()
+{
+	QueueFamilyIndices queueFamilyIndices = getQueueFamilies(mainDevice.physicalDevice);
+
+	VkCommandPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	// Queue family type that buffers from this command pool will use
+	poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+
+	graphicsCommandPool = mainDevice.logicalDevice.createCommandPool(poolInfo);
+}
 
 #pragma endregion Graphic Pipeline
 #pragma endregion

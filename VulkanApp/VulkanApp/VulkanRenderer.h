@@ -33,7 +33,7 @@ public:
 	static const std::vector<const char*> validationLayers;
 
 private:
-	void createInstance(); // <--------------------------------------- CREATE INSTANCE 
+	void createInstance();
 
 	GLFWwindow* window;
 	vk::Instance instance; // vk:: -> C++ API
@@ -41,8 +41,10 @@ private:
 	vk::Queue graphicsQueue;
 	vk::Queue presentationQueue;
 
+	// -- SURFACE --
 	vk::SurfaceKHR surface;
 	void createSurface();
+
 	//v Swapchain ====================================================
 	vk::SwapchainKHR swapchain;
 
@@ -94,8 +96,18 @@ private:
 	
 	vk::PipelineLayout pipelineLayout;
 
+	// -- GRAPHICS PIPELINE --
 	vk::Pipeline graphicsPipeline;
 	void createGraphicPipeline();
 	VkShaderModule createShaderModule(const vector<char>& code);
+
+	// -- FRAMEBUFFER --
+	std::vector<vk::Framebuffer> swapchainFramebuffers;
+	void createFramebuffers();
+
+	// -- COMMAND POOL --
+	vk::CommandPool graphicsCommandPool;
+	void createGraphicsCommandPool();
+
 	//^ Graphic Pipeline =============================================
 };
